@@ -417,7 +417,7 @@ class ClickZettaFileStore(BaseStore):
             List of (file_path, file_size, mime_type) tuples
         """
         files = []
-        for key in self.volume_store.yield_keys(prefix):
+        for key in self.volume_store.yield_keys(prefix=prefix):
             # Skip metadata keys
             if key.startswith("_metadata_"):
                 continue

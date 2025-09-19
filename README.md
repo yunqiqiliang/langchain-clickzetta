@@ -82,7 +82,11 @@
 
 ## Installation
 
-> **Note**: This package is currently in development and not yet published to PyPI.
+### From PyPI (Recommended)
+
+```bash
+pip install langchain-clickzetta
+```
 
 ### Development Installation
 

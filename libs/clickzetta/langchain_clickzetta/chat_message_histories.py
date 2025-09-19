@@ -16,6 +16,21 @@ from langchain_clickzetta.engine import ClickZettaEngine
 logger = logging.getLogger(__name__)
 
 
+def _clean_json_string(json_str: str) -> str:
+    """Clean JSON string by removing problematic control characters.
+
+    Args:
+        json_str: JSON string that might contain control characters
+
+    Returns:
+        Cleaned JSON string safe for SQL storage and JSON parsing
+    """
+    # Remove harmful control characters but preserve \t (0x09), \n (0x0A), \r (0x0D)
+    # Remove: 0x00-0x08, 0x0B, 0x0C, 0x0E-0x1F, 0x7F-0x9F
+    cleaned = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]', '', json_str)
+    return cleaned
+
+
 class ClickZettaChatMessageHistory(BaseChatMessageHistory):
     """Chat message history backed by ClickZetta database.
 
@@ -120,8 +135,9 @@ class ClickZettaChatMessageHistory(BaseChatMessageHistory):
         message_json = json.dumps(
             message_dict, ensure_ascii=True, separators=(",", ":")
         )
-        # Escape single quotes for SQL (ensure_ascii=True handles control characters)
-        escaped_message_json = message_json.replace("'", "''")
+        # Clean control characters and escape single quotes for SQL
+        cleaned_json = _clean_json_string(message_json)
+        escaped_message_json = cleaned_json.replace("'", "''")
 
         insert_sql = f"""
         INSERT INTO {self.table_name}
@@ -153,8 +169,9 @@ class ClickZettaChatMessageHistory(BaseChatMessageHistory):
             message_json = json.dumps(
                 message_dict, ensure_ascii=True, separators=(",", ":")
             )
-            # Escape single quotes for SQL (ensure_ascii=True handles control characters)
-            escaped_message_json = message_json.replace("'", "''")
+            # Clean control characters and escape single quotes for SQL
+            cleaned_json = _clean_json_string(message_json)
+            escaped_message_json = cleaned_json.replace("'", "''")
             values.append(f"('{self.session_id}', '{escaped_message_json}')")
 
         insert_sql = f"""
@@ -213,10 +230,8 @@ class ClickZettaChatMessageHistory(BaseChatMessageHistory):
                     if isinstance(message_json, bytes):
                         message_json = message_json.decode("utf-8", errors="replace")
 
-                    # Clean up only harmful control characters, preserve \t, \n, \r
-                    message_json = re.sub(
-                        r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]", "", message_json
-                    )
+                    # Clean control characters using our helper function
+                    message_json = _clean_json_string(message_json)
 
                     message_data = json.loads(message_json)
                     message_list = messages_from_dict([message_data])

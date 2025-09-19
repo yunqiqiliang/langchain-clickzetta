@@ -148,6 +148,10 @@ class ClickZettaVectorStore(VectorStore):
             logger.info(f"Creating vector table with SQL: {create_table_sql}")
             results, _ = self.engine.execute_query(create_table_sql)
             logger.info(f"Vector table '{self.table_name}' created successfully")
+
+            # Create vector index after table creation
+            self._create_vector_index()
+
         except Exception as e:
             logger.error(f"Failed to create vector table: {e}")
             # Check if it's because the table already exists
@@ -159,6 +163,67 @@ class ClickZettaVectorStore(VectorStore):
             raise RuntimeError(
                 f"Cannot create vector table '{self.table_name}': {e}"
             ) from e
+
+    def _create_vector_index(self) -> None:
+        """Create vector index for the embedding column.
+
+        Creates a vector index using ClickZetta's native syntax for efficient
+        similarity search operations.
+        """
+        import hashlib
+
+        # Generate unique index name based on table name to avoid global conflicts
+        table_hash = hashlib.md5(self.table_name.encode()).hexdigest()[:8]
+        vector_index_name = f"embedding_idx_{table_hash}"
+
+        # Map distance metrics to ClickZetta distance functions
+        distance_function_map = {
+            "cosine": "cosine_distance",
+            "euclidean": "l2_distance",
+            "l2": "l2_distance",
+            "manhattan": "l1_distance",
+        }
+        distance_function = distance_function_map.get(
+            self.distance_metric.lower(), "cosine_distance"
+        )
+
+        # Map vector element types to scalar types for index
+        element_type_map = {
+            "float": "f32",
+            "int": "f32",  # Use f32 for index even with int data
+            "tinyint": "i8",
+        }
+        scalar_type = element_type_map.get(self.vector_element_type.lower(), "f32")
+
+        try:
+            vector_index_sql = f"""
+            CREATE VECTOR INDEX {vector_index_name} ON TABLE {self.table_name}({self.embedding_column})
+            PROPERTIES(
+                "scalar.type" = "{scalar_type}",
+                "distance.function" = "{distance_function}"
+            )
+            """
+            self.engine.execute_query(vector_index_sql)
+            logger.info(
+                f"Vector index '{vector_index_name}' created for table '{self.table_name}'"
+            )
+
+            # Build index for existing data (only if creation succeeded)
+            try:
+                build_vector_sql = f"BUILD INDEX {vector_index_name} ON {self.table_name}"
+                self.engine.execute_query(build_vector_sql)
+                logger.info(
+                    f"Vector index '{vector_index_name}' built for existing data"
+                )
+            except Exception as build_error:
+                logger.warning(f"Failed to build vector index: {build_error}")
+
+        except Exception as e:
+            # Check if it's actually an "already exists" error
+            if "AlreadyExist" in str(e) or "already exist" in str(e).lower():
+                logger.info(f"Vector index '{vector_index_name}' already exists")
+            else:
+                logger.warning(f"Could not create vector index: {e}")
 
     def _format_vector(self, vector: list[float]) -> str:
         """Format vector for ClickZetta insertion.
