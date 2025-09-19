@@ -1,6 +1,6 @@
 [project]
 name = "langchain-clickzetta"
-version = "0.1.2"
+version = "0.1.4"
 description = "An integration package connecting ClickZetta and LangChain"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -34,7 +34,6 @@ dependencies = [
     "clickzetta-connector-python>=0.8.92",
     "clickzetta-zettapark-python>=0.1.3",
     "sqlalchemy>=2.0.0",
-    "pandas>=2.0.0",
     "numpy>=1.20.0",
     "pydantic>=2.0.0",
     "typing-extensions>=4.0.0",
@@ -52,8 +51,14 @@ lint = [
     "mypy>=1.0.0",
     "black>=23.0.0",
 ]
+dataframe = [
+    "pandas>=2.0.0",
+]
+all = [
+    "langchain-clickzetta[dataframe]",
+]
 dev = [
-    "langchain-clickzetta[test,lint]",
+    "langchain-clickzetta[test,lint,dataframe]",
 ]
 
 [build-system]

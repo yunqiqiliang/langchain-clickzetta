@@ -5,6 +5,8 @@
 
 🚀 **Enterprise-grade LangChain integration for ClickZetta** - Unlock the power of cloud-native lakehouse with AI-driven SQL queries, high-performance vector search, and intelligent full-text retrieval in a unified platform.
 
+English | [中文](README_zh.md)
+
 ## 📖 Table of Contents
 
 - [Why ClickZetta + LangChain?](#-why-clickzetta--langchain)

@@ -31,7 +31,7 @@ from langchain_clickzetta.volume_store import (
     ClickZettaVolumeStore,
 )
 
-__version__ = "0.1.2"
+__version__ = "0.1.4"
 
 __all__ = [
     "ClickZettaEngine",
