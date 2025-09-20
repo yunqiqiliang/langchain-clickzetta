@@ -1,13 +1,11 @@
 """Tests for ClickZetta SQL chain."""
 
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
 from langchain_core.language_models.fake import FakeListLLM
 
 from langchain_clickzetta.sql_chain import ClickZettaSQLChain
-
-
 
 
 class TestClickZettaSQLChain:

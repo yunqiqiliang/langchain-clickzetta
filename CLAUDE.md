@@ -45,7 +45,7 @@
 - DashScope配置在 system_config.embedding.dashscope
 
 ### 开发规范
-- 运行测试前确保: `source venv/bin/activate`
+- 运行测试前确保: `source libs/clickzetta/.venv/bin/activate`
 - 格式化代码: `black langchain_clickzetta tests`
 - 类型检查: `mypy langchain_clickzetta`
 - 代码检查: `ruff check .`

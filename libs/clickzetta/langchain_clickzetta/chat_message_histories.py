@@ -138,7 +138,7 @@ class ClickZettaChatMessageHistory(BaseChatMessageHistory):
             inputs: Dictionary containing input data (typically has "input" key)
             outputs: Dictionary containing output data (typically has "output" key)
         """
-        from langchain_core.messages import HumanMessage, AIMessage
+        from langchain_core.messages import AIMessage, HumanMessage
 
         # Extract input message
         if "input" in inputs:

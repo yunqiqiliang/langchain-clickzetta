@@ -5,8 +5,9 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import time
 from collections.abc import Iterator, Sequence
-from typing import Any
+from typing import Any, Optional
 
 from langchain_core.stores import BaseStore
 
@@ -15,7 +16,7 @@ from langchain_clickzetta.engine import ClickZettaEngine
 logger = logging.getLogger(__name__)
 
 
-class ClickZettaVolumeStore(BaseStore):
+class ClickZettaVolumeStore(BaseStore[str, bytes]):
     """ClickZetta Volume-based implementation of LangChain BaseStore.
 
     Uses ClickZetta Volume (User, Table, or Named Volume) to provide
@@ -98,6 +99,70 @@ class ClickZettaVolumeStore(BaseStore):
             return f"{self.subdirectory}/{safe_filename}"
         return safe_filename
 
+    def _put_key_metadata(self, key: str, file_path: str) -> bool:
+        """Store key metadata to enable key recovery."""
+        try:
+            # Store key in a metadata file alongside the data file
+            metadata_file_path = file_path.replace('.dat', '.key')
+            import tempfile
+
+            with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
+                tmp_file.write(key.encode('utf-8'))
+                tmp_file_path = tmp_file.name
+
+            # Upload metadata to volume
+            if self.volume_type == "user":
+                put_sql = f"PUT '{tmp_file_path}' TO USER VOLUME FILE '{metadata_file_path}'"
+            elif self.volume_type == "table":
+                put_sql = f"PUT '{tmp_file_path}' TO TABLE VOLUME {self.volume_name} FILE '{metadata_file_path}'"
+            else:  # named
+                put_sql = f"PUT '{tmp_file_path}' TO VOLUME {self.volume_name} FILE '{metadata_file_path}'"
+
+            self.engine.execute_query(put_sql)
+            return True
+
+        except Exception as e:
+            logger.debug(f"Failed to store key metadata for {key}: {e}")
+            return False
+        finally:
+            try:
+                if "tmp_file_path" in locals():
+                    os.unlink(tmp_file_path)
+            except OSError:
+                pass
+
+    def _get_key_from_metadata(self, file_path: str) -> Optional[str]:
+        """Recover key from metadata file."""
+        try:
+            metadata_file_path = file_path.replace('.dat', '.key')
+            metadata_content = self._get_file(metadata_file_path)
+            if metadata_content:
+                return metadata_content.decode('utf-8')
+            return None
+        except Exception as e:
+            logger.debug(f"Failed to get key metadata from {file_path}: {e}")
+            return None
+
+    def _remove_key_metadata(self, file_path: str) -> bool:
+        """Remove key metadata file."""
+        try:
+            metadata_file_path = file_path.replace('.dat', '.key')
+            return self._remove_file(metadata_file_path)
+        except Exception as e:
+            logger.debug(f"Failed to remove key metadata for {file_path}: {e}")
+            return False
+
+    def _put_file_with_retry(self, file_path: str, content: bytes, max_retries: int = 3) -> bool:
+        """Put content to volume file with retry mechanism."""
+        for attempt in range(max_retries):
+            if self._put_file(file_path, content):
+                return True
+            if attempt < max_retries - 1:
+                wait_time = 2 ** attempt  # Exponential backoff
+                logger.debug(f"Retry attempt {attempt + 1} for {file_path} in {wait_time}s")
+                time.sleep(wait_time)
+        return False
+
     def _put_file(self, file_path: str, content: bytes) -> bool:
         """Put content to volume file."""
         # Write content to temporary local file
@@ -130,7 +195,7 @@ class ClickZettaVolumeStore(BaseStore):
             except OSError:
                 pass  # File might already be deleted or not exist
 
-    def _get_file(self, file_path: str) -> bytes | None:
+    def _get_file(self, file_path: str) -> Optional[bytes]:
         """Get content from volume file."""
         import tempfile
 
@@ -153,12 +218,33 @@ class ClickZettaVolumeStore(BaseStore):
                 downloaded_file = os.path.join(tmp_dir, os.path.basename(file_path))
                 if os.path.exists(downloaded_file):
                     with open(downloaded_file, "rb") as f:
-                        return f.read()
+                        content = f.read()
+                        # Check if the content is an error response from ClickZetta
+                        if content.startswith(b'<?xml') and b'<Code>NoSuchKey</Code>' in content:
+                            logger.debug(f"File not found (NoSuchKey): {file_path}")
+                            return None
+                        return content
                 return None
 
         except Exception as e:
-            logger.debug(f"Failed to get file {file_path}: {e}")
+            # Check if it's a "file not found" type error
+            error_msg = str(e).lower()
+            if any(keyword in error_msg for keyword in ['nosuchkey', 'not exist', 'not found', 'file not found']):
+                logger.debug(f"File not found: {file_path}")
+            else:
+                logger.debug(f"Failed to get file {file_path}: {e}")
             return None
+
+    def _remove_file_with_retry(self, file_path: str, max_retries: int = 3) -> bool:
+        """Remove file from volume with retry mechanism."""
+        for attempt in range(max_retries):
+            if self._remove_file(file_path):
+                return True
+            if attempt < max_retries - 1:
+                wait_time = 2 ** attempt  # Exponential backoff
+                logger.debug(f"Retry attempt {attempt + 1} for removing {file_path} in {wait_time}s")
+                time.sleep(wait_time)
+        return False
 
     def _remove_file(self, file_path: str) -> bool:
         """Remove file from volume."""
@@ -209,7 +295,7 @@ class ClickZettaVolumeStore(BaseStore):
             logger.error(f"Failed to list files: {e}")
             return []
 
-    def mget(self, keys: Sequence[str]) -> list[bytes | None]:
+    def mget(self, keys: Sequence[str]) -> list[Optional[bytes]]:
         """Get values for multiple keys.
 
         Args:
@@ -238,11 +324,22 @@ class ClickZettaVolumeStore(BaseStore):
         if not key_value_pairs:
             return
 
+        failed_keys = []
         for key, value in key_value_pairs:
             file_path = self._get_file_path(key)
-            success = self._put_file(file_path, value)
+            success = self._put_file_with_retry(file_path, value)
             if not success:
-                raise RuntimeError(f"Failed to store key: {key}")
+                failed_keys.append(key)
+                logger.warning(f"Failed to store key: {key}")
+                continue
+
+            # Store key metadata for recovery
+            self._put_key_metadata(key, file_path)
+
+        if failed_keys:
+            logger.error(f"Failed to store {len(failed_keys)} keys: {failed_keys}")
+            # Optionally raise exception based on configuration
+            # raise RuntimeError(f"Failed to store {len(failed_keys)} keys: {failed_keys}")
 
         logger.debug(f"Set {len(key_value_pairs)} key-value pairs in volume")
 
@@ -251,18 +348,37 @@ class ClickZettaVolumeStore(BaseStore):
 
         Args:
             keys: List of keys to delete
+
+        Raises:
+            RuntimeError: If any key fails to delete
         """
         if not keys:
             return
 
+        failed_keys = []
         for key in keys:
             file_path = self._get_file_path(key)
-            self._remove_file(file_path)
+            data_success = self._remove_file_with_retry(file_path)
+            metadata_success = self._remove_key_metadata(file_path)
 
-        logger.debug(f"Deleted {len(keys)} keys from volume")
+            # Consider it failed only if data file deletion fails
+            # Metadata deletion failure is not critical
+            if not data_success:
+                failed_keys.append(key)
+                logger.warning(f"Failed to delete key: {key}")
 
-    def yield_keys(self, *, prefix: str | None = None) -> Iterator[str]:
+        if failed_keys:
+            logger.error(f"Failed to delete {len(failed_keys)} keys: {failed_keys}")
+            # Optionally raise exception based on configuration
+            # raise RuntimeError(f"Failed to delete {len(failed_keys)} keys: {failed_keys}")
+
+        logger.debug(f"Successfully deleted {len(keys)} keys from volume")
+
+    def yield_keys(self, *, prefix: Optional[str] = None) -> Iterator[str]:
         """Yield keys that match the given prefix.
+
+        This implementation recovers keys from metadata files stored alongside
+        data files. Keys are recovered from .key files that correspond to .dat files.
 
         Args:
             prefix: Key prefix to match
@@ -272,21 +388,19 @@ class ClickZettaVolumeStore(BaseStore):
         """
         files = self._list_files()
 
-        # Create reverse mapping from filename to key (this is approximate)
-        # In a real implementation, you might want to store metadata separately
         for file_path in files:
             if file_path.endswith(".dat"):
-                # For demonstration, we'll try to match by checking if the file exists
-                # In practice, you might want a separate metadata store for key mappings
-                try:
-                    content = self._get_file(file_path)
-                    if content is not None:
-                        # Generate a placeholder key - in real usage you'd need better key recovery
-                        key = f"key_{os.path.basename(file_path).replace('.dat', '')}"
-                        if not prefix or key.startswith(prefix):
-                            yield key
-                except Exception:
-                    continue  # Skip files that can't be processed
+                # Try to recover the original key from metadata
+                key = self._get_key_from_metadata(file_path)
+                if key is not None:
+                    # Check prefix match
+                    if not prefix or key.startswith(prefix):
+                        yield key
+                else:
+                    # Fallback: if no metadata available, log warning
+                    logger.debug(f"No key metadata found for file: {file_path}")
+                    # Could try to use a heuristic here, but it's better to be explicit
+                    continue
 
 
 class ClickZettaUserVolumeStore(ClickZettaVolumeStore):
