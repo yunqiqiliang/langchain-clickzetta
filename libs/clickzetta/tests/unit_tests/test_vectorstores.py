@@ -22,7 +22,7 @@ class TestClickZettaVectorStore:
 
         assert vector_store.engine == mock_engine
         assert vector_store.embeddings == mock_embeddings
-        assert vector_store.table_name == "test_vectors"
+        assert vector_store.table_name == "test-workspace.test-schema.test_vectors"
         assert vector_store.embedding_column == "embedding"
         assert vector_store.content_column == "content"
 
@@ -165,7 +165,7 @@ class TestClickZettaVectorStore:
         assert isinstance(doc1, Document)
         assert doc1.page_content == "test document 1"
         assert doc1.metadata["source"] == "test1"
-        assert score1 == 0.9  # 1 - 0.1 for cosine distance
+        assert score1 == 0.95  # 1 - 0.1/2.0 for cosine distance normalization
 
     def test_similarity_search(self, mock_engine, mock_embeddings):
         """Test basic similarity search."""
@@ -231,14 +231,14 @@ class TestClickZettaVectorStore:
 
         vector_store = ClickZettaVectorStore.from_texts(
             texts=texts,
-            embeddings=mock_embeddings,
+            embedding=mock_embeddings,
             engine=mock_engine,
             metadatas=metadatas,
             table_name="test_table",
         )
 
         assert isinstance(vector_store, ClickZettaVectorStore)
-        assert vector_store.table_name == "test_table"
+        assert vector_store.table_name == "test-workspace.test-schema.test_table"
 
     def test_from_documents(self, mock_engine, mock_embeddings, sample_documents):
         """Test creating vector store from documents."""
@@ -249,13 +249,13 @@ class TestClickZettaVectorStore:
 
         vector_store = ClickZettaVectorStore.from_documents(
             documents=sample_documents,
-            embeddings=mock_embeddings,
+            embedding=mock_embeddings,
             engine=mock_engine,
             table_name="test_table",
         )
 
         assert isinstance(vector_store, ClickZettaVectorStore)
-        assert vector_store.table_name == "test_table"
+        assert vector_store.table_name == "test-workspace.test-schema.test_table"
 
     def test_similarity_search_with_filter(self, mock_engine, mock_embeddings):
         """Test similarity search with metadata filter."""

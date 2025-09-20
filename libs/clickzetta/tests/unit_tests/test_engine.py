@@ -28,19 +28,17 @@ class TestClickZettaEngine:
         assert engine.connection_timeout == 60
         assert engine.query_timeout == 600
 
-    @patch("langchain_clickzetta.engine.Session")
-    def test_get_session(self, mock_session_class, test_connection_config):
+    @patch("clickzetta.connect")
+    def test_get_session(self, mock_connect, test_connection_config):
         """Test session creation."""
         mock_session = Mock()
-        mock_session_class.builder.return_value.configs.return_value.build.return_value = (
-            mock_session
-        )
+        mock_connect.return_value = mock_session
 
         engine = ClickZettaEngine(**test_connection_config)
         session = engine.get_session()
 
         assert session == mock_session
-        mock_session_class.builder.assert_called_once()
+        mock_connect.assert_called_once_with(**test_connection_config)
 
     @patch("langchain_clickzetta.engine.create_engine")
     def test_get_sqlalchemy_engine(self, mock_create_engine, test_connection_config):
@@ -61,46 +59,47 @@ class TestClickZettaEngine:
         assert "test-service" in url
         assert "test-workspace" in url
 
-    @patch("langchain_clickzetta.engine.Session")
-    def test_execute_query(self, mock_session_class, test_connection_config):
+    @patch("clickzetta.connect")
+    def test_execute_query(self, mock_connect, test_connection_config):
         """Test query execution."""
-        # Mock session and result
+        # Mock session and cursor
         mock_session = Mock()
-        mock_result = Mock()
-        mock_result.to_pandas.return_value.to_dict.return_value = [
-            {"id": 1, "name": "test"},
-            {"id": 2, "name": "test2"},
-        ]
-        mock_result.to_pandas.return_value.columns.tolist.return_value = ["id", "name"]
+        mock_cursor = Mock()
 
-        mock_session.sql.return_value = mock_result
-        mock_session_class.builder.return_value.configs.return_value.build.return_value = (
-            mock_session
-        )
+        # Mock cursor.fetchall() to return tuples
+        mock_cursor.fetchall.return_value = [
+            (1, "test"),
+            (2, "test2"),
+        ]
+        # Mock cursor.description to return column descriptions
+        mock_cursor.description = [("id",), ("name",)]
+
+        mock_session.cursor.return_value = mock_cursor
+        mock_connect.return_value = mock_session
 
         engine = ClickZettaEngine(**test_connection_config)
         results, columns = engine.execute_query("SELECT * FROM test_table")
 
         assert len(results) == 2
         assert columns == ["id", "name"]
-        mock_session.sql.assert_called_once_with(
-            "SELECT * FROM test_table", hints=engine.hints
-        )
+        assert results[0] == {"id": 1, "name": "test"}
+        assert results[1] == {"id": 2, "name": "test2"}
+        mock_cursor.execute.assert_called_once_with("SELECT * FROM test_table")
 
-    @patch("langchain_clickzetta.engine.Session")
+    @patch("clickzetta.connect")
     def test_execute_query_with_parameters(
-        self, mock_session_class, test_connection_config
+        self, mock_connect, test_connection_config
     ):
         """Test query execution with parameters."""
         mock_session = Mock()
-        mock_result = Mock()
-        mock_result.to_pandas.return_value.to_dict.return_value = []
-        mock_result.to_pandas.return_value.columns.tolist.return_value = []
+        mock_cursor = Mock()
 
-        mock_session.sql.return_value = mock_result
-        mock_session_class.builder.return_value.configs.return_value.build.return_value = (
-            mock_session
-        )
+        # Mock empty results
+        mock_cursor.fetchall.return_value = []
+        mock_cursor.description = None
+
+        mock_session.cursor.return_value = mock_cursor
+        mock_connect.return_value = mock_session
 
         engine = ClickZettaEngine(**test_connection_config)
         parameters = {"param1": "value1"}
@@ -108,10 +107,8 @@ class TestClickZettaEngine:
             "SELECT * FROM test_table WHERE col = %(param1)s", parameters
         )
 
-        mock_session.sql.assert_called_once_with(
-            "SELECT * FROM test_table WHERE col = %(param1)s",
-            hints=engine.hints,
-            param1="value1",
+        mock_cursor.execute.assert_called_once_with(
+            "SELECT * FROM test_table WHERE col = %(param1)s", parameters
         )
 
     def test_get_table_info_mock(self, mock_engine):
@@ -144,6 +141,7 @@ class TestClickZettaEngine:
             schema="test",
             username="test",
             password="test",
+            vcluster="test",
         )
         engine.execute_query = mock_engine.execute_query
 
@@ -159,13 +157,11 @@ class TestClickZettaEngine:
             with ClickZettaEngine(**test_connection_config) as engine:
                 assert isinstance(engine, ClickZettaEngine)
 
-    @patch("langchain_clickzetta.engine.Session")
-    def test_close(self, mock_session_class, test_connection_config):
+    @patch("clickzetta.connect")
+    def test_close(self, mock_connect, test_connection_config):
         """Test closing connections."""
         mock_session = Mock()
-        mock_session_class.builder.return_value.configs.return_value.build.return_value = (
-            mock_session
-        )
+        mock_connect.return_value = mock_session
 
         engine = ClickZettaEngine(**test_connection_config)
         engine.get_session()  # Create session

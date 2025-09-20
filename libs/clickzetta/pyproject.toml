@@ -1,6 +1,6 @@
 [project]
 name = "langchain-clickzetta"
-version = "0.1.4"
+version = "0.1.13"
 description = "An integration package connecting ClickZetta and LangChain"
 readme = "README.md"
 requires-python = ">=3.9"

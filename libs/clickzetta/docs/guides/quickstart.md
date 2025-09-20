@@ -81,7 +81,7 @@ embeddings = DashScopeEmbeddings(
 # 创建向量存储
 vector_store = ClickZettaVectorStore(
     engine=engine,
-    embeddings=embeddings,
+    embedding=embeddings,
     table_name="quickstart_vectors"
 )
 
@@ -144,7 +144,7 @@ from langchain_clickzetta import ClickZettaHybridStore, ClickZettaUnifiedRetriev
 # 创建混合存储（单表支持向量+全文索引）
 hybrid_store = ClickZettaHybridStore(
     engine=engine,
-    embeddings=embeddings,
+    embedding=embeddings,
     table_name="quickstart_hybrid",
     text_analyzer="ik"  # 中文分词器
 )

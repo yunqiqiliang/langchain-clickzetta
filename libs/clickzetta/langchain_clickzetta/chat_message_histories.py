@@ -96,6 +96,109 @@ class ClickZettaChatMessageHistory(BaseChatMessageHistory):
             raise
 
     @property
+    def buffer(self) -> str:
+        """Get the conversation buffer as a formatted string.
+
+        This property formats the conversation history as a string,
+        compatible with LangChain memory systems.
+
+        Returns:
+            Formatted string representation of the conversation
+        """
+        messages = self.messages
+        if not messages:
+            return ""
+
+        # Format messages as "Human: ... AI: ..." string
+        buffer_lines = []
+        for message in messages:
+            if hasattr(message, 'type'):
+                if message.type == 'human':
+                    prefix = "Human"
+                elif message.type == 'ai':
+                    prefix = "AI"
+                else:
+                    prefix = message.type.title()
+            else:
+                # Fallback for messages without type
+                prefix = message.__class__.__name__.replace('Message', '')
+
+            content = message.content if hasattr(message, 'content') else str(message)
+            buffer_lines.append(f"{prefix}: {content}")
+
+        return "\n".join(buffer_lines)
+
+    def save_context(self, inputs: dict[str, Any], outputs: dict[str, Any]) -> None:
+        """Save context from a conversation to the chat history.
+
+        This method is compatible with LangChain memory systems that expect
+        save_context functionality.
+
+        Args:
+            inputs: Dictionary containing input data (typically has "input" key)
+            outputs: Dictionary containing output data (typically has "output" key)
+        """
+        from langchain_core.messages import HumanMessage, AIMessage
+
+        # Extract input message
+        if "input" in inputs:
+            input_content = inputs["input"]
+            human_message = HumanMessage(content=input_content)
+            self.add_message(human_message)
+
+        # Extract output message
+        if "output" in outputs:
+            output_content = outputs["output"]
+            ai_message = AIMessage(content=output_content)
+            self.add_message(ai_message)
+
+    def load_memory_variables(self, inputs: dict[str, Any]) -> dict[str, Any]:
+        """Return memory variables for LangChain memory compatibility.
+
+        This method is compatible with BaseMemory interface.
+
+        Args:
+            inputs: Dictionary of input values (not used in this implementation)
+
+        Returns:
+            Dictionary containing memory variables with chat history
+        """
+        # inputs parameter is not used in this implementation but kept for interface compatibility
+        _ = inputs
+        return {
+            "history": self.buffer,
+            "chat_history": self.buffer,
+            "messages": self.messages
+        }
+
+    @property
+    def memory_variables(self) -> list[str]:
+        """Return list of memory variable keys.
+
+        Returns:
+            List of memory variable keys that this memory provides
+        """
+        return ["history", "chat_history", "messages"]
+
+    def add_user_message(self, message: str) -> None:
+        """Add a user message to the chat history.
+
+        Args:
+            message: The user message content
+        """
+        from langchain_core.messages import HumanMessage
+        self.add_message(HumanMessage(content=message))
+
+    def add_ai_message(self, message: str) -> None:
+        """Add an AI message to the chat history.
+
+        Args:
+            message: The AI message content
+        """
+        from langchain_core.messages import AIMessage
+        self.add_message(AIMessage(content=message))
+
+    @property
     def messages(self) -> list[BaseMessage]:
         """Retrieve all messages for the current session."""
         select_sql = f"""

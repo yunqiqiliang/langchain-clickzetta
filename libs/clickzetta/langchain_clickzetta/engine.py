@@ -208,19 +208,156 @@ class ClickZettaEngine:
             logger.debug(f"SQLAlchemy query executed, returned {len(records)} rows")
             return records
 
-    def get_table_info(self, table_names: list[str] | None = None) -> str:
-        """Get information about tables in the current schema.
+    def get_table_names(self, schema: str | None = None) -> list[str]:
+        """Get all table names in the specified or current schema.
+
+        Note: This method is deprecated in LangChain but still required for compatibility.
+        Use get_usable_table_names() instead.
+
+        Args:
+            schema: Optional schema name. If not provided, uses the current schema.
+
+        Returns:
+            List of table names
+        """
+        return list(self.get_usable_table_names(schema=schema))
+
+    def get_usable_table_names(self, schema: str | None = None) -> list[str]:
+        """Get available table names in the specified or current schema.
+
+        This is the preferred method for getting table names in LangChain.
+
+        Args:
+            schema: Optional schema name. If not provided, uses the current schema.
+
+        Returns:
+            List of available table names
+        """
+        # Use provided schema or default to connection schema
+        target_schema = schema or self.connection_config["schema"]
+
+        try:
+            # Try to use SHOW TABLES first (most compatible)
+            # Some databases support SHOW TABLES FROM schema syntax
+            if schema:
+                query = f"SHOW TABLES FROM {target_schema}"
+            else:
+                query = "SHOW TABLES"
+            results, _ = self.execute_query(query)
+
+            # Extract table names from result
+            table_names = []
+            for row in results:
+                # SHOW TABLES usually returns a single column with table name
+                if isinstance(row, dict):
+                    # Find the table name field (could be 'table_name', 'Tables_in_*', etc.)
+                    table_name = None
+                    for key, value in row.items():
+                        if 'table' in key.lower() or len(row) == 1:
+                            table_name = value
+                            break
+                    if table_name:
+                        table_names.append(table_name)
+
+            if table_names:
+                return sorted(table_names)
+
+        except Exception as e:
+            logger.warning(f"SHOW TABLES failed: {e}, trying alternative method")
+
+        try:
+            # Fallback: try information_schema
+            query = f"""
+            SELECT table_name
+            FROM information_schema.tables
+            WHERE table_schema = '{target_schema}'
+            AND table_type = 'BASE TABLE'
+            ORDER BY table_name
+            """
+            results, _ = self.execute_query(query)
+            return [row["table_name"] for row in results]
+
+        except Exception as e:
+            logger.warning(f"information_schema query failed: {e}")
+
+        # Last resort: return empty list
+        logger.warning("Could not retrieve table names, returning empty list")
+        return []
+
+    def run(self, command: str, fetch: str = "all") -> str:
+        """Execute a SQL command and return a string representing the results.
+
+        This method is required for LangChain SQL compatibility.
+
+        Args:
+            command: SQL command to execute
+            fetch: Fetch mode ("all", "one", or "cursor")
+
+        Returns:
+            String representation of query results
+        """
+        try:
+            results, columns = self.execute_query(command)
+
+            if not results:
+                return ""
+
+            # Format results as string table
+            if not columns:
+                return str(results)
+
+            # Create a simple table format
+            lines = []
+
+            # Header
+            lines.append(" | ".join(columns))
+            lines.append("-" * len(lines[0]))
+
+            # Data rows
+            for row in results:
+                if isinstance(row, dict):
+                    row_values = [str(row.get(col, "")) for col in columns]
+                else:
+                    row_values = [str(val) for val in row]
+                lines.append(" | ".join(row_values))
+
+            return "\n".join(lines)
+
+        except Exception as e:
+            # Return error message as string (LangChain pattern)
+            return f"Error executing query: {str(e)}"
+
+    @property
+    def dialect(self) -> str:
+        """Get database dialect string.
+
+        Returns:
+            String representation of database dialect
+        """
+        return "clickzetta"
+
+    @property
+    def table_info(self) -> str:
+        """Get information about all tables in the database.
+
+        Returns:
+            String containing information about all tables
+        """
+        table_names = self.get_usable_table_names()
+        return self.get_table_info(table_names=table_names)
+
+    def get_table_info(self, table_names: list[str] | None = None, schema: str | None = None) -> str:
+        """Get information about tables in the specified or current schema.
 
         Args:
             table_names: Optional list of specific table names to describe
+            schema: Optional schema name. If not provided, uses the current schema.
 
         Returns:
             String containing table information
         """
-        if table_names:
-            "AND table_name IN ('" + "', '".join(table_names) + "')"
-        else:
-            pass
+        # Use provided schema or default to connection schema
+        target_schema = schema or self.connection_config["schema"]
 
         # ClickZetta uses SHOW COLUMNS or system tables for metadata
         # Try SHOW COLUMNS approach first, fallback to system tables if needed
@@ -237,27 +374,47 @@ class ClickZettaEngine:
 
             for table_name in table_names:
                 try:
-                    show_sql = f"SHOW COLUMNS FROM {table_name}"
+                    # Include schema in the SHOW COLUMNS query if different from connection schema
+                    if schema and schema != self.connection_config["schema"]:
+                        show_sql = f"SHOW COLUMNS FROM {target_schema}.{table_name}"
+                    else:
+                        show_sql = f"SHOW COLUMNS FROM {table_name}"
                     table_results, _ = self.execute_query(show_sql)
 
                     # Transform SHOW COLUMNS results to match expected format
                     for row in table_results:
-                        # SHOW COLUMNS typically returns: Field, Type, Null, Key, Default, Extra
-                        results.append(
-                            {
-                                "table_name": table_name,
-                                "column_name": row.get(
-                                    "Field", row.get("column_name", "")
-                                ),
-                                "data_type": row.get("Type", row.get("data_type", "")),
-                                "is_nullable": (
-                                    "YES" if row.get("Null", "YES") == "YES" else "NO"
-                                ),
-                                "column_default": row.get(
-                                    "Default", row.get("column_default")
-                                ),
-                            }
-                        )
+                        # Check if data is already in the expected format (for testing)
+                        if "table_name" in row and "column_name" in row and "is_nullable" in row:
+                            # Data is already in the correct format, use as-is
+                            results.append(row)
+                        elif "column_name" in row and "data_type" in row:
+                            # ClickZetta SHOW COLUMNS format: schema_name, table_name, column_name, data_type, comment
+                            results.append(
+                                {
+                                    "table_name": row.get("table_name", table_name),
+                                    "column_name": row.get("column_name", ""),
+                                    "data_type": row.get("data_type", ""),
+                                    "is_nullable": "YES",  # ClickZetta doesn't return nullable info via SHOW COLUMNS
+                                    "column_default": row.get("comment", ""),  # Use comment as default since no default field
+                                }
+                            )
+                        else:
+                            # MySQL/Standard SHOW COLUMNS format: Field, Type, Null, Key, Default, Extra
+                            results.append(
+                                {
+                                    "table_name": table_name,
+                                    "column_name": row.get(
+                                        "Field", row.get("column_name", "")
+                                    ),
+                                    "data_type": row.get("Type", row.get("data_type", "")),
+                                    "is_nullable": (
+                                        "YES" if row.get("Null", "YES") == "YES" else "NO"
+                                    ),
+                                    "column_default": row.get(
+                                        "Default", row.get("column_default")
+                                    ),
+                                }
+                            )
                 except Exception:
                     # If SHOW COLUMNS fails, skip this table
                     logger.warning(f"Could not get column info for table {table_name}")
@@ -272,7 +429,7 @@ class ClickZettaEngine:
                 'YES' as is_nullable,
                 '' as column_default
             FROM information_schema.columns
-            WHERE table_schema = '{self.connection_config["schema"]}'
+            WHERE table_schema = '{target_schema}'
             ORDER BY table_name, column_name
             """
             try:

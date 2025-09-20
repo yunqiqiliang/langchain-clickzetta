@@ -18,6 +18,17 @@ def mock_engine():
     engine.get_table_info.return_value = "Mock table info"
     engine.close.return_value = None
 
+    # Mock connection config for vectorstore tests
+    engine.connection_config = {
+        "workspace": "test-workspace",
+        "schema": "test-schema",
+        "service": "test-service",
+        "instance": "test-instance",
+        "username": "test-user",
+        "password": "test-password",
+        "vcluster": "test-vcluster",
+    }
+
     return engine
 
 

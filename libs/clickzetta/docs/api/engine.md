@@ -42,7 +42,7 @@ def __init__(
 | `schema` | `str` | ✅ | 模式名称 |
 | `username` | `str` | ✅ | 用户名 |
 | `password` | `str` | ✅ | 密码 |
-| `vcluster` | `str` | ✅ | 虚拟集群名称 |
+| `vcluster` | `str` | ✅ | 虚拟集群名称（必需参数） |
 | `connection_timeout` | `int` | ❌ | 连接超时时间（秒），默认30 |
 | `query_timeout` | `int` | ❌ | 查询超时时间（秒），默认300 |
 | `hints` | `dict` | ❌ | 查询提示参数 |
@@ -176,6 +176,8 @@ def get_table_info(
 ```
 
 获取表结构信息，格式化为SQL DDL形式。
+
+> **注意**: ClickZetta的SHOW COLUMNS返回格式为：`schema_name, table_name, column_name, data_type, comment`，与MySQL标准格式不同。本方法已经处理了这种差异，提供统一的接口。
 
 #### 参数
 

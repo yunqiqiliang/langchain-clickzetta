@@ -78,6 +78,58 @@ class ClickZettaVectorStore(VectorStore):
         # Initialize table if it doesn't exist
         self._create_table_if_not_exists()
 
+    def _check_table_exists(self) -> bool:
+        """Check if the vector table already exists using simple and reliable method.
+
+        Returns:
+            True if table exists, False otherwise
+        """
+        # Use the most reliable method: try to query the table structure
+        try:
+            # Try DESC table - this is the most reliable way to check existence
+            desc_results, _ = self.engine.execute_query(f"DESC {self.table_name}")
+            if desc_results:
+                logger.debug(f"Table exists (DESC successful): {self.table_name}")
+                return True
+        except Exception as e:
+            error_msg = str(e).lower()
+            # If it's a "table not found" error, table doesn't exist
+            if any(pattern in error_msg for pattern in [
+                "table or view not found",
+                "table not found",
+                "object not found",
+                "does not exist"
+            ]):
+                logger.debug(f"Table does not exist (DESC failed): {self.table_name}")
+                return False
+            else:
+                # Other errors might be permission issues, treat as table exists
+                logger.warning(f"DESC check failed with non-existence error: {e}")
+
+        # Fallback: Try SELECT LIMIT 0 - safer than full select
+        try:
+            select_results, _ = self.engine.execute_query(
+                f"SELECT 1 FROM {self.table_name} LIMIT 0"
+            )
+            logger.debug(f"Table exists (SELECT successful): {self.table_name}")
+            return True
+        except Exception as e:
+            error_msg = str(e).lower()
+            if any(pattern in error_msg for pattern in [
+                "table or view not found",
+                "table not found",
+                "object not found",
+                "does not exist"
+            ]):
+                logger.debug(f"Table does not exist (SELECT failed): {self.table_name}")
+                return False
+            else:
+                logger.warning(f"SELECT check failed with non-existence error: {e}")
+
+        # If we can't determine conclusively, assume table doesn't exist (safer for creation)
+        logger.debug(f"Could not determine table existence, assuming it doesn't exist: {self.table_name}")
+        return False
+
     @property
     def embeddings(self) -> Embeddings:
         """Access the query embedding object."""
@@ -131,18 +183,14 @@ class ClickZettaVectorStore(VectorStore):
         )
         """
 
-        # Check if table already exists first
-        try:
-            check_results, _ = self.engine.execute_query(
-                f"SHOW TABLES LIKE '{self.table_name}'"
-            )
-            if check_results:
-                logger.info(f"Vector table '{self.table_name}' already exists")
-                return
-        except Exception as e:
-            logger.warning(
-                f"Could not check if table exists: {e}, proceeding with creation"
-            )
+        # Check if table already exists first using more robust methods
+        table_exists = self._check_table_exists()
+        if table_exists:
+            logger.info(f"Vector table '{self.table_name}' already exists")
+            return
+
+        # If table doesn't exist, proceed with creation
+        logger.info(f"Creating new vector table '{self.table_name}'")
 
         try:
             logger.info(f"Creating vector table with SQL: {create_table_sql}")
@@ -154,14 +202,32 @@ class ClickZettaVectorStore(VectorStore):
 
         except Exception as e:
             logger.error(f"Failed to create vector table: {e}")
-            # Check if it's because the table already exists
-            if "AlreadyExist" in str(e) or "already exists" in str(e).lower():
+            # Check if it's because the table already exists using various error patterns
+            error_msg = str(e).lower()
+            table_exists_patterns = [
+                "already exists",
+                "alreadyexist",
+                "table exists",
+                "duplicate table",
+                "czlh-42000",  # ClickZetta specific error code
+                "semantic analysis exception",
+            ]
+
+            if any(pattern in error_msg for pattern in table_exists_patterns):
                 logger.info(
-                    f"Vector table '{self.table_name}' already exists (from error)"
+                    f"Vector table '{self.table_name}' already exists (detected from error)"
                 )
-                return
+                # Double-check by trying to query the table
+                if self._check_table_exists():
+                    logger.info(f"Confirmed: table '{self.table_name}' exists and is accessible")
+                    return
+                else:
+                    logger.warning(f"Table seems to exist but is not accessible: {e}")
+
+            # If it's not a table exists error, re-raise with context
             raise RuntimeError(
-                f"Cannot create vector table '{self.table_name}': {e}"
+                f"Cannot create vector table '{self.table_name}': {e}. "
+                f"Please check database permissions and table name format."
             ) from e
 
     def _create_vector_index(self) -> None:
@@ -647,26 +713,37 @@ class ClickZettaVectorStore(VectorStore):
         texts: list[str],
         embedding: Embeddings,
         metadatas: list[dict[str, Any]] | None = None,
-        *,
-        engine: ClickZettaEngine,
-        table_name: str = "langchain_vectors",
-        vector_element_type: str = "float",
         **kwargs: Any,
     ) -> ClickZettaVectorStore:
         """Create a ClickZettaVectorStore from a list of texts.
 
         Args:
             texts: List of texts to add to the vectorstore
-            embeddings: Embedding model to use
-            engine: ClickZetta database engine
+            embedding: Embedding model to use
             metadatas: Optional list of metadatas
-            table_name: Name of the table to store vectors
-            vector_element_type: Element type for vectors (float, int, tinyint)
-            **kwargs: Additional arguments
+            **kwargs: Additional arguments including:
+                - engine: ClickZetta database engine (required)
+                - table_name: Name of the table to store vectors
+                - vector_element_type: Element type for vectors (float, int, tinyint)
 
         Returns:
             ClickZettaVectorStore instance
+
+        Raises:
+            ValueError: If engine parameter is missing
         """
+        # Extract required engine parameter
+        engine = kwargs.pop('engine', None)
+        if not engine:
+            raise ValueError(
+                "engine parameter is required. "
+                "Usage: ClickZettaVectorStore.from_texts(texts, embedding, engine=engine)"
+            )
+
+        # Extract optional parameters with defaults
+        table_name = kwargs.pop('table_name', 'langchain_vectors')
+        vector_element_type = kwargs.pop('vector_element_type', 'float')
+
         vector_store = cls(
             engine=engine,
             embeddings=embedding,
@@ -682,24 +759,23 @@ class ClickZettaVectorStore(VectorStore):
         cls,
         documents: list[Document],
         embedding: Embeddings,
-        *,
-        engine: ClickZettaEngine,
-        table_name: str = "langchain_vectors",
-        vector_element_type: str = "float",
         **kwargs: Any,
     ) -> ClickZettaVectorStore:
         """Create a ClickZettaVectorStore from a list of Documents.
 
         Args:
             documents: List of Documents to add to the vectorstore
-            embeddings: Embedding model to use
-            engine: ClickZetta database engine
-            table_name: Name of the table to store vectors
-            vector_element_type: Element type for vectors (float, int, tinyint)
-            **kwargs: Additional arguments
+            embedding: Embedding model to use
+            **kwargs: Additional arguments including:
+                - engine: ClickZetta database engine (required)
+                - table_name: Name of the table to store vectors
+                - vector_element_type: Element type for vectors (float, int, tinyint)
 
         Returns:
             ClickZettaVectorStore instance
+
+        Raises:
+            ValueError: If engine parameter is missing
         """
         texts = [doc.page_content for doc in documents]
         metadatas = [doc.metadata for doc in documents]
@@ -708,8 +784,5 @@ class ClickZettaVectorStore(VectorStore):
             texts=texts,
             embedding=embedding,
             metadatas=metadatas,
-            engine=engine,
-            table_name=table_name,
-            vector_element_type=vector_element_type,
             **kwargs,
         )

@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.5] - 2024-09-20
+
+### Fixed
+- **Breaking Change**: Modified `from_documents` and `from_texts` class methods to follow LangChain standard API patterns
+  - Removed forced keyword-only parameters (`*` syntax)
+  - Moved required `engine` parameter to `**kwargs` for better compatibility
+  - Updated documentation to reflect standard LangChain usage patterns
+- Improved table existence checking with multiple fallback methods
+- Enhanced error handling for table creation with ClickZetta-specific error patterns
+- Added robust table existence verification using SHOW TABLES, DESC, SELECT, and system tables
+- Better error messages and logging for debugging table creation issues
+
+### Changed
+- `ClickZettaVectorStore.from_documents()` now accepts `engine` via `**kwargs` instead of forced keyword argument
+- `ClickZettaVectorStore.from_texts()` now accepts `engine` via `**kwargs` instead of forced keyword argument
+- Improved compatibility with standard LangChain vector store patterns used by FAISS, Chroma, etc.
+
+### Added
+- New `_check_table_exists()` method with multiple verification strategies
+- Enhanced error pattern recognition for ClickZetta-specific error codes (CZLH-42000)
+- Better debugging support with detailed table existence logging
+
 ### Added
 - Initial implementation of LangChain ClickZetta integration
 - ClickZettaEngine for database connections and query execution

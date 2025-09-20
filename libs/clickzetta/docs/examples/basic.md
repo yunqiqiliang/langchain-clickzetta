@@ -162,7 +162,7 @@ embeddings = DashScopeEmbeddings(
 # 创建向量存储
 vector_store = ClickZettaVectorStore(
     engine=engine,
-    embeddings=embeddings,
+    embedding=embeddings,
     table_name="example_vectors"
 )
 
@@ -540,7 +540,7 @@ def create_mini_qa_system():
 
     vector_store = ClickZettaVectorStore(
         engine=engine,
-        embeddings=embeddings,
+        embedding=embeddings,
         table_name="mini_qa_docs"
     )
 

@@ -95,7 +95,7 @@ class RAGApplication:
         # 初始化混合存储（文档库）
         self.document_store = ClickZettaHybridStore(
             engine=self.engine,
-            embeddings=self.embeddings,
+            embedding=self.embeddings,
             table_name="rag_documents",
             text_analyzer="ik",  # 中文分词
             distance_metric="cosine"

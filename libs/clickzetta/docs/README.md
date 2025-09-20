@@ -76,10 +76,13 @@ LangChain ClickZetta 集成提供以下核心组件：
 ## 📋 关键特性
 
 ### ✅ LangChain兼容性
+- 完整的 LangChain 标准接口实现
+- 支持所有必需的 LangChain 方法和属性
 - 完整的 `BaseStore` 接口实现
 - 支持同步和异步方法
 - 标准的LangChain使用模式
 - 类型安全操作
+- 兼容LangChain v0.1.0+
 
 ### ✅ ClickZetta原生特性
 - MERGE INTO操作实现原子化UPSERT

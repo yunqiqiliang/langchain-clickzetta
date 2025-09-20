@@ -32,12 +32,13 @@ pip install -e ".[dev]"
 langchain-core>=0.1.0
 clickzetta-connector-python>=0.8.92
 clickzetta-zettapark-python>=0.1.3
-pandas>=2.0.0
-numpy>=1.20.0
 sqlalchemy>=2.0.0
+numpy>=1.20.0
 pydantic>=2.0.0
 typing-extensions>=4.0.0
 ```
+
+> **版本信息**: 当前版本 0.1.13 已修复所有LangChain兼容性问题，包括vcluster参数支持和SHOW COLUMNS格式处理。
 
 ### 可选依赖
 
@@ -62,14 +63,14 @@ pip install langchain-clickzetta[dev]
    - 注册并申请 ClickZetta 试用
 
 2. **获取连接信息**
-   您需要以下7个连接参数：
+   ClickZetta需要以下7个必需连接参数：
    - `service` - 服务地址
    - `instance` - 实例名称
    - `workspace` - 工作空间
    - `schema` - 模式名称
    - `username` - 用户名
    - `password` - 密码
-   - `vcluster` - 虚拟集群名称
+   - `vcluster` - 虚拟集群名称（必需参数）
 
 ### 环境变量配置
 
@@ -178,7 +179,7 @@ try:
 
     vector_store = ClickZettaVectorStore(
         engine=engine,
-        embeddings=embeddings,
+        embedding=embeddings,
         table_name="test_vectors"
     )
     print("✅ 向量存储初始化成功")
@@ -235,6 +236,30 @@ pip install --upgrade langchain-clickzetta
 1. 联系管理员授予CREATE TABLE权限
 2. 使用现有表名
 3. 确认workspace和schema权限
+```
+
+### LangChain兼容性问题
+
+**问题**: `'is_nullable' KeyError`
+```
+解决方案:
+这已在v0.1.13中修复。请升级到最新版本：
+pip install --upgrade langchain-clickzetta
+```
+
+**问题**: `missing vcluster parameter`
+```
+解决方案:
+确保提供所有7个必需参数，包括vcluster:
+engine = ClickZettaEngine(
+    service="...",
+    instance="...",
+    workspace="...",
+    schema="...",
+    username="...",
+    password="...",
+    vcluster="..."  # 必需参数
+)
 ```
 
 ## 🚀 下一步

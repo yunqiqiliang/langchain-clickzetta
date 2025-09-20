@@ -107,7 +107,7 @@ result = sql_chain.invoke({"query": "分析用户年龄分布情况"})
 **向量语义搜索**
 ```python
 # 基于语义相似性的搜索
-vector_store = ClickZettaVectorStore(engine=engine, embeddings=embeddings)
+vector_store = ClickZettaVectorStore(engine=engine, embedding=embeddings)
 results = vector_store.similarity_search("人工智能的发展趋势", k=5)
 ```
 
@@ -388,11 +388,11 @@ engine = ClickZettaEngine(
 ```python
 # 向量搜索
 from langchain_clickzetta import ClickZettaVectorStore
-vector_store = ClickZettaVectorStore(engine=engine, embeddings=embeddings)
+vector_store = ClickZettaVectorStore(engine=engine, embedding=embeddings)
 
 # 混合搜索
 from langchain_clickzetta import ClickZettaHybridStore
-hybrid_store = ClickZettaHybridStore(engine=engine, embeddings=embeddings)
+hybrid_store = ClickZettaHybridStore(engine=engine, embedding=embeddings)
 
 # SQL查询
 from langchain_clickzetta import ClickZettaSQLChain
